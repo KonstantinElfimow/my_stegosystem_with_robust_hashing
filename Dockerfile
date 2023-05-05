@@ -1,14 +1,17 @@
 # базовый образ
-FROM python:3.10
+FROM python:latest
 
-# установка зависимостей
-RUN pip install flask
+RUN mkdir -p /usr/src/app/
+WORKDIR /usr/src/app/
 
-# копирование файлов приложения
-COPY app.py /app/
+COPY . /usr/src/app/
 
-# рабочая директория
-WORKDIR /app
+RUN apt-get update && apt-get install -y sudo
+RUN pip install --no-cache-dir -r requirements.txt
 
+EXPOSE 5000
 # команда для запуска приложения
 CMD ["python", "app.py"]
+
+# docker build -t web-stegosystem .
+# docker run --rm --name web -p 5000:5000 web-stegosystem

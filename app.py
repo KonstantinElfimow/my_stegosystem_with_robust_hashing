@@ -1,7 +1,7 @@
 import base64
 import json
 import os
-import cv2
+from PIL import Image
 import numpy as np
 import requests
 import sqlite3
@@ -13,7 +13,6 @@ from my_modules.robust_hashing import improved_phash
 app = Flask(__name__)
 
 port = 5000
-url = f'http://localhost:{port}/'
 headers = {'Content-Type': 'application/json'}
 
 # Подключаемся к базе данных
@@ -77,18 +76,17 @@ def sender():
     hashes = []
     # Проходимся по всем файлам в папке
     for filename in os.listdir(path):
-        # чтение изображения в бинарном режиме
         with open(os.path.join(path, filename), "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-        # Открываем изображение
-        image = cv2.imread(os.path.join(path, filename))
-        # Вычисляем перцептивный хэш
-        phash = improved_phash(image)
+        # Открываем изображение и вычисляем перцептивный хэш
+        with Image.open(os.path.join(path, filename)) as image:
+            phash = improved_phash(image)
+
         hashes.append(phash)
         binary_phash = np.binary_repr(phash, width=64)
         images.update({filename: [encoded_string, binary_phash]})
 
-    requests.post(f'{url}/api/data', json=images, headers=headers)
+    requests.post(f'{request.host_url}/api/data', json=images, headers=headers)
     np.random.seed()
     return 'OK', 200
 
@@ -101,7 +99,7 @@ def receiver():
     # Путь к папке, куда будет сохранять изображения
     path = 'resources/received_images'
 
-    data_json = requests.get(f'{url}/api/data', headers=headers).json()
+    data_json = requests.get(f'{request.host_url}/api/data', headers=headers).json()
     # Convert the JSON string to a dictionary
     data = json.loads(data_json)
     # декодирование строки из формата base64
@@ -112,9 +110,8 @@ def receiver():
             image_file.write(decoded_string)
 
         # Открываем изображение
-        image = cv2.imread(os.path.join(path, filename))
-        # Вычисляем перцептивный хэш
-        phash = improved_phash(image)
+        with Image.open(os.path.join(path, filename)) as image:
+            phash = improved_phash(image)
 
     np.random.seed()
 

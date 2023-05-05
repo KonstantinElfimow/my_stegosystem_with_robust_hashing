@@ -1,4 +1,4 @@
-import cv2
+from PIL import Image
 import numpy as np
 from my_modules.pca import my_pca
 from my_modules.dct import my_dct
@@ -21,7 +21,7 @@ def improved_phash(image: np.array) -> np.uint64:
     # io.show()
 
     # Преобразуем в оттенки серого
-    img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    img = np.array(image.convert("L"))
 
     # Разбиение на блоки размером 8x8
     blocks = []
@@ -44,7 +44,7 @@ def improved_phash(image: np.array) -> np.uint64:
             reconstructed_image[i - 8: i, j - 8: j] = reconstructed[count, :, :]
             count += 1
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
-    reconstructed_image = cv2.resize(reconstructed_image, (8, 8))
+    reconstructed_image = np.array(Image.fromarray(reconstructed_image).resize((8, 8)))
 
     # Вычисление pHash
     hash_value = __phash(reconstructed_image)
