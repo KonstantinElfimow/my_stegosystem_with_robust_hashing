@@ -45,7 +45,7 @@ def get_data():
     # Преобразуем данные в json
     data = []
     for row in rows:
-        d = {int(row[0]): [row[1], row[2], row[3]]}
+        d = {row[0]: [row[1], row[2], row[3]]}
         data.append(d)
     data = json.dumps(data)
 
@@ -86,7 +86,7 @@ def sender():
             encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(path, filename)) as image:
-            phash = improved_phash(image)
+            phash: np.uint64 = improved_phash(image)
 
         hashes.append(phash)
         binary_phash = np.binary_repr(phash, width=64)
@@ -119,8 +119,14 @@ def receiver():
                 image_file.write(decoded_string)
 
             # Открываем изображение и вычисляем перцептивный хэш
+            original_phash = np.uint64(int(values[2], 2))
             with Image.open(os.path.join(path, filename)) as image:
-                phash = improved_phash(image)
+                phash: np.uint64 = improved_phash(image)
+
+            if phash == original_phash:
+                print(f'{filename} изображение оригинальное!')
+            else:
+                print('Изображения различны!')
 
     np.random.seed()
     return 'OK', 200
