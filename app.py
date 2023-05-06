@@ -57,7 +57,7 @@ def post_data():
     data = request.get_json()
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
-    c.executemany('INSERT INTO images (filename, binary, phash) VALUES (?, ?)', [(row[0], row[1]) for row in data])
+    c.executemany('INSERT INTO images (filename, binary) VALUES (?, ?)', [(row[0], row[1]) for row in data])
     conn.commit()
     conn.close()
     return 'OK', 201
