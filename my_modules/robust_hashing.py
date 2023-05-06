@@ -15,13 +15,13 @@ def __phash(block: np.array) -> np.uint64:
     return h
 
 
-def improved_phash(image: np.array) -> np.uint64:
-    # # Исходное изображение
-    # io.imshow(image)
-    # io.show()
-
+def improved_phash(image: Image) -> np.uint64:
     # Преобразуем в оттенки серого
-    img = np.array(image.convert("L"))
+    img = np.array(image.convert("L"), dtype=np.uint8).copy()
+
+    # Исходное изображение
+    # temp = Image.fromarray(img)
+    # temp.show()
 
     # Разбиение на блоки размером 8x8
     blocks = []
@@ -44,13 +44,13 @@ def improved_phash(image: np.array) -> np.uint64:
             reconstructed_image[i - 8: i, j - 8: j] = reconstructed[count, :, :]
             count += 1
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
-    reconstructed_image = np.array(Image.fromarray(reconstructed_image).resize((8, 8)))
+    reconstructed_image = np.array(Image.fromarray(reconstructed_image).resize((8, 8)), dtype=np.uint8)
 
     # Вычисление pHash
     hash_value = __phash(reconstructed_image)
 
-    # # Изображение, от которого вычислялся хэш
-    # io.imshow(reconstructed_image)
-    # io.show()
+    # Изображение, от которого вычислялся хэш
+    # temp = Image.fromarray(reconstructed_image)
+    # temp.show()
 
     return hash_value

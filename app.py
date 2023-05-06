@@ -20,7 +20,11 @@ conn = sqlite3.connect('./repository/images.db')
 # Дропаем, если db уже существует
 conn.execute('DROP TABLE IF EXISTS images')
 # Создаем таблицу для хранения изображений
-conn.execute('CREATE TABLE IF NOT EXISTS images (filename VARCHAR(255) PRIMARY KEY, binary TEXT, phash VARCHAR(64))')
+conn.execute('CREATE TABLE IF NOT EXISTS images '
+             '(id INTEGER PRIMARY KEY AUTOINCREMENT,'
+             'filename VARCHAR(255) NOT NULL, '
+             'binary TEXT NOT NULL, '
+             'phash VARCHAR(64) NOT NULL)')
 # Сохраняем изменения в базе данных
 conn.commit()
 # Закрываем соединение с базой данных
@@ -39,9 +43,10 @@ def get_data():
     conn.close()
 
     # Преобразуем данные в json
-    data = {}
+    data = []
     for row in rows:
-        data.update({row[0]: [row[1], row[2]]})
+        d = {int(row[0]): [row[1], row[2], row[3]]}
+        data.append(d)
     data = json.dumps(data)
 
     return jsonify(data), 200
@@ -56,7 +61,8 @@ def post_data():
     data = request.get_json()
     conn = sqlite3.connect('./repository/images.db')
     c = conn.cursor()
-    c.executemany('INSERT INTO images VALUES (?, ?, ?)', [(k, v[0], v[1]) for k, v in data.items()])
+    c.executemany('INSERT INTO images (filename, binary, phash) VALUES (?, ?, ?)',
+                  [(row[0], row[1], row[2]) for row in data])
     conn.commit()
     conn.close()
     return 'OK', 201
@@ -68,10 +74,10 @@ def sender():
     np.random.seed(key)
 
     # Путь к папке с изображениями
-    path = 'resources/sent_images'
+    path = 'repository/resources/sent_images'
 
-    # Создаем словарь для хранения и последующей передачи изображений в бинарном режиме
-    images = {}
+    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
+    images = []
     # Создаем словарь для сохранения pHash
     hashes = []
     # Проходимся по всем файлам в папке
@@ -84,7 +90,7 @@ def sender():
 
         hashes.append(phash)
         binary_phash = np.binary_repr(phash, width=64)
-        images.update({filename: [encoded_string, binary_phash]})
+        images.append([filename, encoded_string, binary_phash])
 
     requests.post(f'{request.host_url}/api/data', json=images, headers=headers)
     np.random.seed()
@@ -97,24 +103,26 @@ def receiver():
     np.random.seed(key)
 
     # Путь к папке, куда будет сохранять изображения
-    path = 'resources/received_images'
+    path = 'repository/resources/received_images'
 
     data_json = requests.get(f'{request.host_url}/api/data', headers=headers).json()
     # Convert the JSON string to a dictionary
     data = json.loads(data_json)
     # декодирование строки из формата base64
-    for filename, bin_hash in data.items():
-        decoded_string = base64.b64decode(bin_hash[0])
-        # сохранение изображения в файл
-        with open(os.path.join(path, filename), "wb") as image_file:
-            image_file.write(decoded_string)
+    for row in data:
+        for key, values in row.items():
+            # сохранение изображения в файл
+            filename = values[0]
+            with open(os.path.join(path, filename), "wb") as image_file:
+                encoded_string = values[1]
+                decoded_string = base64.b64decode(encoded_string)
+                image_file.write(decoded_string)
 
-        # Открываем изображение
-        with Image.open(os.path.join(path, filename)) as image:
-            phash = improved_phash(image)
+            # Открываем изображение и вычисляем перцептивный хэш
+            with Image.open(os.path.join(path, filename)) as image:
+                phash = improved_phash(image)
 
     np.random.seed()
-
     return 'OK', 200
 
 
