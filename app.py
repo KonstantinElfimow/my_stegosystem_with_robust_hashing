@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import os
 from PIL import Image
@@ -35,7 +36,7 @@ load_dotenv('.env')
 
 @app.route('/api/data', methods=['GET'])
 def get_data():
-    conn = sqlite3.connect('./repository/images.db')
+    conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
     c.execute('SELECT * FROM images')
     rows = c.fetchall()
@@ -54,7 +55,7 @@ def get_data():
 @app.route('/api/data', methods=['POST'])
 def post_data():
     data = request.get_json()
-    conn = sqlite3.connect('./repository/images.db')
+    conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
     c.executemany('INSERT INTO images (filename, binary, phash) VALUES (?, ?)', [(row[0], row[1]) for row in data])
     conn.commit()
@@ -93,17 +94,20 @@ def sender():
 
         result: np.uint16 = np.bitwise_xor(ch_ord, gamma)
         if hashes.get(result, None) is not None:
-            chosen_files.append(hashes.get(result)[0])
+            chosen_files.append(hashes[result][0])
         else:
             raise ValueError('Map не был полностью заполнен!')
+        
     # Создаем список для хранения и последующей передачи изображений в бинарном режиме
-    images = []
+    filename_binary = []
     # Проходимся по всем файлам в папке
     for filename in chosen_files:
-        with open(os.path.join(path, filename), "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-        images.append([filename, encoded_string])
-    requests.post(f'{request.host_url}/api/data', json=images, headers=headers)
+        with open(os.path.join(path, filename), 'rb') as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+        filename_binary.append([filename, encoded_string])
+    
+    # Через REST API отправляем изображения в виде бинарника
+    requests.post(f'{request.host_url}/api/data', json=filename_binary, headers=headers)
 
     np.random.seed()
     return 'OK', 200
@@ -121,14 +125,14 @@ def receiver():
     hashes = []
 
     data_json = requests.get(f'{request.host_url}/api/data', headers=headers).json()
-    # Convert the JSON string to a dictionary
+    # Преобразуем json в dict
     data = json.loads(data_json)
     # декодирование строки из формата base64
     for row in data:
         for key, values in row.items():
             # сохранение изображения в файл
             filename = values[0]
-            with open(os.path.join(path, filename), "wb") as image_file:
+            with open(os.path.join(path, filename), 'wb') as image_file:
                 encoded_string = values[1]
                 decoded_string = base64.b64decode(encoded_string)
                 image_file.write(decoded_string)
@@ -137,6 +141,18 @@ def receiver():
             with Image.open(os.path.join(path, filename)) as image:
                 phash: np.uint16 = improved_phash(image)
             hashes.append(phash)
+
+    # Декодируем сообщение
+    buffer = io.StringIO()
+    for h in hashes:
+        gamma = gamma_function(0, 2 ** 16)
+        m: np.uint16 = np.bitwise_xor(h, gamma)
+
+        m_i = (int(m).to_bytes(2, byteorder='big')).decode('utf-8')
+        buffer.write(m_i)
+
+    with open(os.path.join(path, 'message_recovered.txt'), mode='w', encoding='utf-8') as file:
+        file.write(buffer.getvalue())
 
     np.random.seed()
     return 'OK', 200
