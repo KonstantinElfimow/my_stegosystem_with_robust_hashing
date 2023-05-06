@@ -17,7 +17,7 @@ def __phash(block: np.array) -> np.uint64:
 
 def improved_phash(image: Image) -> np.uint64:
     # Преобразуем в оттенки серого
-    img = np.array(image.convert("L"), dtype=np.uint8).copy()
+    img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 
     # Исходное изображение
     # temp = Image.fromarray(img)
@@ -29,12 +29,12 @@ def improved_phash(image: Image) -> np.uint64:
         for j in range(8, img.shape[1], 8):
             block = img[i - 8: i, j - 8: j]
             blocks.append(block)
-    vectors = np.array(blocks, dtype=np.uint8).reshape(-1, 64)
+    vectors = np.asarray(blocks, dtype=np.uint8).reshape(-1, 64)
     del blocks
 
     # Восстановленные блоки
     k = len(vectors) // 2
-    reconstructed = np.array(my_pca(vectors, k), dtype=np.uint8).reshape(-1, 8, 8)
+    reconstructed = np.asarray(my_pca(vectors, k), dtype=np.uint8).reshape(-1, 8, 8)
 
     # Восстановленное изображение
     reconstructed_image = np.zeros(img.shape, dtype=np.uint8)
@@ -44,7 +44,7 @@ def improved_phash(image: Image) -> np.uint64:
             reconstructed_image[i - 8: i, j - 8: j] = reconstructed[count, :, :]
             count += 1
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
-    reconstructed_image = np.array(Image.fromarray(reconstructed_image).resize((8, 8)), dtype=np.uint8)
+    reconstructed_image = np.asarray(Image.fromarray(reconstructed_image).convert('L').resize((8, 8)), dtype=np.uint8)
 
     # Вычисление pHash
     hash_value = __phash(reconstructed_image)
