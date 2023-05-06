@@ -4,18 +4,19 @@ from my_modules.pca import my_pca
 from my_modules.dct import my_dct
 
 
-def __phash(block: np.array) -> np.uint64:
+def __phash(block: np.array) -> np.uint16:
     """ Перцептивное хэширование """
     assert block.shape == (8, 8) and block.dtype == np.uint8
 
     dct = my_dct(block)
-    dct = dct.reshape(-1)
-    x = (np.arange(64))[dct >= dct.mean()]
-    h = np.uint64(np.sum(np.power(2, x)))
+
+    dct_low_freq = dct[0: 4, 0: 4].copy().reshape(-1)
+    x = (np.arange(16))[dct_low_freq >= dct_low_freq[1:].mean()]
+    h = np.uint16(np.sum(np.power(2, x)))
     return h
 
 
-def improved_phash(image: Image) -> np.uint64:
+def improved_phash(image: Image) -> np.uint16:
     # Преобразуем в оттенки серого
     img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 

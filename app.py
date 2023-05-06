@@ -23,8 +23,7 @@ conn.execute('DROP TABLE IF EXISTS images')
 conn.execute('CREATE TABLE IF NOT EXISTS images '
              '(id INTEGER PRIMARY KEY AUTOINCREMENT,'
              'filename VARCHAR(255) NOT NULL, '
-             'binary TEXT NOT NULL, '
-             'phash VARCHAR(64) NOT NULL)')
+             'binary TEXT NOT NULL)')
 # Сохраняем изменения в базе данных
 conn.commit()
 # Закрываем соединение с базой данных
@@ -45,15 +44,11 @@ def get_data():
     # Преобразуем данные в json
     data = []
     for row in rows:
-        d = {row[0]: [row[1], row[2], row[3]]}
+        d = {row[0]: [row[1], row[2]]}
         data.append(d)
     data = json.dumps(data)
 
     return jsonify(data), 200
-
-
-def get_ascii_symbols() -> list[str]:
-    return [chr(i) for i in range(32, 128)]
 
 
 @app.route('/api/data', methods=['POST'])
@@ -61,11 +56,14 @@ def post_data():
     data = request.get_json()
     conn = sqlite3.connect('./repository/images.db')
     c = conn.cursor()
-    c.executemany('INSERT INTO images (filename, binary, phash) VALUES (?, ?, ?)',
-                  [(row[0], row[1], row[2]) for row in data])
+    c.executemany('INSERT INTO images (filename, binary, phash) VALUES (?, ?)', [(row[0], row[1]) for row in data])
     conn.commit()
     conn.close()
     return 'OK', 201
+
+
+def gamma_function(start: int, stop: int):
+    return np.random.randint(start, stop)
 
 
 @app.route('/')
@@ -75,24 +73,38 @@ def sender():
 
     # Путь к папке с изображениями
     path = 'repository/resources/sent_images'
-
-    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
-    images = []
     # Создаем словарь для сохранения pHash
-    hashes = []
+    hashes = {}
     # Проходимся по всем файлам в папке
     for filename in os.listdir(path):
-        with open(os.path.join(path, filename), "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(path, filename)) as image:
-            phash: np.uint64 = improved_phash(image)
+            phash: np.uint16 = improved_phash(image)
+        hashes[phash] = hashes.setdefault(phash, []).append(filename)
 
-        hashes.append(phash)
-        binary_phash = np.binary_repr(phash, width=64)
-        images.append([filename, encoded_string, binary_phash])
+    path = 'repository/resources/message.txt'
+    with open(path, mode='r', encoding='utf-8') as file:
+        message = file.read()
 
+    chosen_files = []
+    for ch in list(message):
+        ch_ord = np.uint16(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
+        gamma = np.uint16(gamma_function(0, 2 ** 16))
+
+        result: np.uint16 = np.bitwise_xor(ch_ord, gamma)
+        if hashes.get(result, None) is not None:
+            chosen_files.append(hashes.get(result)[0])
+        else:
+            raise ValueError('Map не был полностью заполнен!')
+    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
+    images = []
+    # Проходимся по всем файлам в папке
+    for filename in chosen_files:
+        with open(os.path.join(path, filename), "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+        images.append([filename, encoded_string])
     requests.post(f'{request.host_url}/api/data', json=images, headers=headers)
+
     np.random.seed()
     return 'OK', 200
 
@@ -104,6 +116,9 @@ def receiver():
 
     # Путь к папке, куда будет сохранять изображения
     path = 'repository/resources/received_images'
+
+    # Храним полученные хэши
+    hashes = []
 
     data_json = requests.get(f'{request.host_url}/api/data', headers=headers).json()
     # Convert the JSON string to a dictionary
@@ -119,14 +134,9 @@ def receiver():
                 image_file.write(decoded_string)
 
             # Открываем изображение и вычисляем перцептивный хэш
-            original_phash = np.uint64(int(values[2], 2))
             with Image.open(os.path.join(path, filename)) as image:
-                phash: np.uint64 = improved_phash(image)
-
-            if phash == original_phash:
-                print(f'{filename} изображение оригинальное!')
-            else:
-                print('Изображения различны!')
+                phash: np.uint16 = improved_phash(image)
+            hashes.append(phash)
 
     np.random.seed()
     return 'OK', 200
