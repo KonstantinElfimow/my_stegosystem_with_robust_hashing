@@ -120,7 +120,6 @@ def sender():
         with open(os.path.join(path, filename), 'rb') as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
         filename_binary.update({filename: encoded_string})
-    print(len(filename_binary))
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
 
