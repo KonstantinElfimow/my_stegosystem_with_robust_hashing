@@ -22,7 +22,7 @@ def improved_phash(image: Image) -> np.uint8:
     del blocks
 
     # Восстановленные блоки
-    k = len(vectors) * 4 // 5
+    k = len(vectors) // 2
     reconstructed = np.asarray(my_pca(vectors, k), dtype=np.complex64).real.astype(np.uint8).reshape(-1, 8, 8)
 
     # Восстановленное изображение

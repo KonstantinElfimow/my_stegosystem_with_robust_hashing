@@ -30,12 +30,12 @@ conn = sqlite3.connect('./repository/images.db')
 conn.execute('DROP TABLE IF EXISTS cutouts')
 # Создаем таблицу для хранения фрагментов изображений
 conn.execute('CREATE TABLE IF NOT EXISTS cutouts '
-             '(filename VARCHAR(255), '
+             '(id INTEGER PRIMARY KEY AUTOINCREMENT, '
+             'filename VARCHAR(255), '
              'start_i INTEGER, '
              'start_j INTEGER, '
              'end_i INTEGER, '
-             'end_j INTEGER, '
-             'PRIMARY KEY (filename, start_i, start_j, end_i, end_j))')
+             'end_j INTEGER)')
 conn.commit()
 conn.close()
 
@@ -81,16 +81,15 @@ def get_cutouts():
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
     c.execute('SELECT * '
-              'FROM cutouts '
-              'ORDER BY filename')
+              'FROM cutouts')
     rows = c.fetchall()
     conn.close()
 
     # Преобразуем данные в json
-    data = []
+    data = {}
     for row in rows:
-        d = [row[0], row[1], row[2], row[3], row[4]]
-        data.append(d)
+        d = {row[0]: [row[1], row[2], row[3], row[4], row[5]]}
+        data.update(d)
     data = json.dumps(data)
 
     return jsonify(data), 200
@@ -101,7 +100,8 @@ def post_cutouts():
     data = request.get_json()
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
-    c.executemany('INSERT INTO cutouts VALUES (?, ?, ?)', [(values[0], values[1], values[2]) for values in data])
+    c.executemany('INSERT INTO cutouts (filename, start_i, start_j, end_i, end_j) VALUES (?, ?, ?, ?, ?)',
+                  [(l[0], l[1], l[2], l[3], l[4]) for l in data])
     conn.commit()
     conn.close()
     return 'OK', 201
@@ -132,18 +132,19 @@ def sender():
     for filename in os.listdir(path):
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(path, filename)) as image:
+            arr = np.asarray(image, dtype=np.uint8)
             # Получаем размер изображения
-            width, height = image.size
+            height, width = arr.shape[0:2]
 
-            step = 32
-            for i in range(step, height, 32):
-                for j in range(step, width, 32):
-                    cropped_image = image.crop((i - step, j - step, i, j))
-                    phash: np.uint8 = improved_phash(cropped_image)
-
-                    start = tuple([i - step, j - step])
-                    end = tuple([i, j])
-                    hashes.setdefault(phash, []).append([filename, start, end])
+            step = 256
+            for i in range(step, height, step):
+                for j in range(step, width, step):
+                    start_i = i - step
+                    start_j = j - step
+                    end_i = i
+                    end_j = j
+                    phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
+                    hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
 
     print(len(hashes))
     # print(hashes)
@@ -156,15 +157,14 @@ def sender():
 
     np.random.seed(key)
     chosen_fragments = []
-    for ch in list(message):
+    for ch in message:
         ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
         gamma = np.uint8(gamma_function(0, 2 ** 8))
 
-        result: np.uint8 = np.bitwise_xor(ch_ord, gamma)
+        result = np.uint8(np.bitwise_xor(ch_ord, gamma))
         if hashes.get(result, None) is not None:
             chosen_fragments.append(hashes[result][0])
         else:
-            print(chosen_fragments)
             raise ValueError('Map не был полностью заполнен!')
     np.random.seed()
 
@@ -197,25 +197,26 @@ def receiver():
     data_json = requests.get(f'{request.host_url}/api/data/cutouts', headers=headers).json()
     # Преобразуем json
     data = json.loads(data_json)
-    for values in data:
+    for _, values in data.items():
         filename = values[0]
-        with Image.open(filename) as image:
-            start_i = int(values[1])
-            start_j = int(values[2])
-            end_i = int(values[3])
-            end_j = int(values[4])
+        start_i = int(values[1])
+        start_j = int(values[2])
+        end_i = int(values[3])
+        end_j = int(values[4])
+        with Image.open(os.path.join(path, filename)) as image:
+            arr = np.asarray(image)
 
-            cropped_image = image.crop((start_i, start_j, end_i, end_j))
-        phash: np.uint8 = improved_phash(cropped_image)
+        phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
         hashes.append(phash)
 
     # Декодируем сообщение
+    path = 'repository/resources'
     buffer = io.StringIO()
     for h in hashes:
-        gamma = gamma_function(0, 2 ** 8)
-        m: np.uint8 = np.bitwise_xor(h, gamma)
+        gamma = np.uint8(gamma_function(0, 2 ** 8))
+        m = np.uint8(np.bitwise_xor(h, gamma))
 
-        m_i = (int(m).to_bytes(1, byteorder='big')).decode('utf-8')
+        m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
         buffer.write(m_i)
 
     with open(os.path.join(path, 'message_recovered.txt'), mode='w', encoding='utf-8') as file:
