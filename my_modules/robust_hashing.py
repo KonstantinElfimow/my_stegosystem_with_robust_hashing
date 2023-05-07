@@ -4,19 +4,7 @@ from my_modules.pca import my_pca
 from my_modules.dct import my_dct
 
 
-def __phash(block: np.array) -> np.uint16:
-    """ Перцептивное хэширование """
-    assert block.shape == (8, 8) and block.dtype == np.uint8
-
-    dct = my_dct(block)
-
-    dct_low_freq = dct[0: 4, 0: 4].copy().reshape(-1)
-    x = (np.arange(16))[dct_low_freq >= dct_low_freq[1:].mean()]
-    h = np.uint16(np.sum(np.power(2, x)))
-    return h
-
-
-def improved_phash(image: Image) -> np.uint16:
+def improved_phash(image: Image) -> np.uint8:
     # Преобразуем в оттенки серого
     img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 
@@ -34,8 +22,8 @@ def improved_phash(image: Image) -> np.uint16:
     del blocks
 
     # Восстановленные блоки
-    k = len(vectors) // 2
-    reconstructed = np.asarray(my_pca(vectors, k), dtype=np.uint8).reshape(-1, 8, 8)
+    k = len(vectors) * 4 // 5
+    reconstructed = np.asarray(my_pca(vectors, k), dtype=np.complex64).real.astype(np.uint8).reshape(-1, 8, 8)
 
     # Восстановленное изображение
     reconstructed_image = np.zeros(img.shape, dtype=np.uint8)
@@ -47,11 +35,14 @@ def improved_phash(image: Image) -> np.uint16:
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
     reconstructed_image = np.asarray(Image.fromarray(reconstructed_image).convert('L').resize((8, 8)), dtype=np.uint8)
 
-    # Вычисление pHash
-    hash_value = __phash(reconstructed_image)
-
-    # Изображение, от которого вычислялся хэш
+    # Изображение, от которого вычисляется хэш
     # temp = Image.fromarray(reconstructed_image)
     # temp.show()
 
-    return hash_value
+    # Вычисление pHash
+    dct = my_dct(reconstructed_image)
+
+    dct_low_freq = dct[0: 3, 0: 3].copy().reshape(-1)
+    x = (np.arange(8))[dct_low_freq[1:] >= dct_low_freq[1:].mean()]
+    h = np.uint8(np.sum(np.power(2, x)))
+    return h
