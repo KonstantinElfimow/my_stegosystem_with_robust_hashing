@@ -66,11 +66,8 @@ def post_images():
     data = request.get_json()
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
-    unique_filenames = set()
     for k, v in data.items():
-        if k not in unique_filenames:
-            unique_filenames.add(k)
-            c.execute('INSERT INTO images (filename, binary) VALUES (?, ?)', (k, v))
+        c.execute('INSERT INTO images (filename, binary) VALUES (?, ?)', (k, v))
     conn.commit()
     conn.close()
     return 'OK', 201
@@ -122,7 +119,8 @@ def sender():
     for filename in os.listdir(path):
         with open(os.path.join(path, filename), 'rb') as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        filename_binary[filename] = encoded_string
+        filename_binary.update({filename: encoded_string})
+    print(len(filename_binary))
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
 
@@ -136,7 +134,7 @@ def sender():
             # Получаем размер изображения
             height, width = arr.shape[0:2]
 
-            step = 256
+            step = 128
             for i in range(step, height, step):
                 for j in range(step, width, step):
                     start_i = i - step
