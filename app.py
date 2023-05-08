@@ -123,8 +123,8 @@ def sender():
             height, width = arr.shape[0:2]
 
             step = 128
-            for i in range(0, height, step):
-                for j in range(0, width, step):
+            for i in range(0, height - step + 1, step):
+                for j in range(0, width - step + 1, step):
                     start_i = i
                     start_j = j
                     end_i = i + step
