@@ -8,15 +8,16 @@ def improved_phash(image: Image) -> np.uint8:
     # Преобразуем в оттенки серого
     img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 
+    height, width = img.shape[0: 2]
     # Исходное изображение
     # temp = Image.fromarray(img)
     # temp.show()
 
     # Разбиение на блоки размером 8x8
     blocks = []
-    for i in range(8, img.shape[0], 8):
-        for j in range(8, img.shape[1], 8):
-            block = img[i - 8: i, j - 8: j]
+    for i in range(0, height - 7, 8):
+        for j in range(0, width - 7, 8):
+            block = img[i: i + 8, j: j + 8]
             blocks.append(block)
     vectors = np.asarray(blocks, dtype=np.uint8).reshape(-1, 64)
     del blocks
@@ -28,9 +29,9 @@ def improved_phash(image: Image) -> np.uint8:
     # Восстановленное изображение
     reconstructed_image = np.zeros(img.shape, dtype=np.uint8)
     count = 0
-    for i in range(8, img.shape[0], 8):
-        for j in range(8, img.shape[1], 8):
-            reconstructed_image[i - 8: i, j - 8: j] = reconstructed[count, :, :]
+    for i in range(0, height - 7, 8):
+        for j in range(0, width - 7, 8):
+            reconstructed_image[i: i + 8, j: j + 8] = reconstructed[count, :, :]
             count += 1
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
     reconstructed_image = np.asarray(Image.fromarray(reconstructed_image).convert('L').resize((8, 8)), dtype=np.uint8)

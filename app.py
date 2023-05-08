@@ -66,8 +66,7 @@ def post_images():
     data = request.get_json()
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
-    for k, v in data.items():
-        c.execute('INSERT INTO images (filename, binary) VALUES (?, ?)', (k, v))
+    c.executemany('INSERT OR REPLACE INTO images (filename, binary) VALUES (?, ?)', [(k, v) for k, v in data.items()])
     conn.commit()
     conn.close()
     return 'OK', 201
@@ -97,7 +96,7 @@ def post_cutouts():
     data = request.get_json()
     conn = sqlite3.connect('repository/images.db')
     c = conn.cursor()
-    c.executemany('INSERT INTO cutouts (filename, start_i, start_j, end_i, end_j) VALUES (?, ?, ?, ?, ?)',
+    c.executemany('INSERT OR REPLACE INTO cutouts (filename, start_i, start_j, end_i, end_j) VALUES (?, ?, ?, ?, ?)',
                   [(l[0], l[1], l[2], l[3], l[4]) for l in data])
     conn.commit()
     conn.close()
@@ -113,16 +112,6 @@ def sender():
     # Путь к папке с изображениями
     path = 'repository/resources/sent_images'
 
-    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
-    filename_binary = {}
-    # Проходимся по всем файлам в папке
-    for filename in os.listdir(path):
-        with open(os.path.join(path, filename), 'rb') as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        filename_binary.update({filename: encoded_string})
-    # Через REST API отправляем изображения в виде бинарника
-    requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
-
     # Создаем словарь для сохранения pHash
     hashes = {}
     # Проходимся по всем файлам в папке
@@ -134,12 +123,12 @@ def sender():
             height, width = arr.shape[0:2]
 
             step = 128
-            for i in range(step, height, step):
-                for j in range(step, width, step):
-                    start_i = i - step
-                    start_j = j - step
-                    end_i = i
-                    end_j = j
+            for i in range(0, height - step + 1, step):
+                for j in range(0, width - step + 1, step):
+                    start_i = i
+                    start_j = j
+                    end_i = i + step
+                    end_j = j + step
                     phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
                     hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
 
@@ -164,8 +153,17 @@ def sender():
         else:
             raise ValueError('Map не был полностью заполнен!')
     np.random.seed()
-
     requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
+
+    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
+    filename_binary = {}
+    # Проходимся по всем файлам в папке
+    for filename in os.listdir(path):
+        with open(os.path.join(path, filename), 'rb') as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+        filename_binary.update({filename: encoded_string})
+    # Через REST API отправляем изображения в виде бинарника
+    requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
 
     return 'OK', 200
 
