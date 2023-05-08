@@ -123,8 +123,8 @@ def sender():
             height, width = arr.shape[0:2]
 
             step = 128
-            for i in range(0, height - step + 1, step):
-                for j in range(0, width - step + 1, step):
+            for i in range(0, height, step):
+                for j in range(0, width, step):
                     start_i = i
                     start_j = j
                     end_i = i + step
@@ -155,6 +155,8 @@ def sender():
     np.random.seed()
     requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
 
+    # Путь к папке с изображениями
+    path = 'repository/resources/sent_images'
     # Создаем список для хранения и последующей передачи изображений в бинарном режиме
     filename_binary = {}
     # Проходимся по всем файлам в папке
@@ -192,7 +194,7 @@ def receiver():
     data_json = requests.get(f'{request.host_url}/api/data/cutouts', headers=headers).json()
     # Преобразуем json
     data = json.loads(data_json)
-    for _, values in data.items():
+    for values in data.values():
         filename = values[0]
         start_i = int(values[1])
         start_j = int(values[2])
