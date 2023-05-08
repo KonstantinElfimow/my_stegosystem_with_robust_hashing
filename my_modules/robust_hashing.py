@@ -9,9 +9,6 @@ def improved_phash(image: Image) -> np.uint8:
     img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 
     height, width = img.shape[0: 2]
-    # Исходное изображение
-    # temp = Image.fromarray(img)
-    # temp.show()
 
     # Разбиение на блоки размером 8x8
     blocks = []
@@ -35,10 +32,6 @@ def improved_phash(image: Image) -> np.uint8:
             count += 1
     # Масштабируем полученное изображение до (8, 8) для вычисления pHash
     reconstructed_image = np.asarray(Image.fromarray(reconstructed_image).convert('L').resize((8, 8)), dtype=np.uint8)
-
-    # Изображение, от которого вычисляется хэш
-    # temp = Image.fromarray(reconstructed_image)
-    # temp.show()
 
     # Вычисление pHash
     dct = my_dct(reconstructed_image)
