@@ -12,7 +12,7 @@ def my_dct(gray_mat: np.uint8) -> np.array:
             if i == 0:
                 coeffs[i, j] = 1 / np.sqrt(8)
             else:
-                coeffs[i, j] = np.sqrt(2 / 8) * np.cos((np.pi * (2 * j + 1) * i) / (2 * 8))
+                coeffs[i, j] = np.sqrt(2 / 8) * np.cos((np.pi * (2 * j + 1) * i) / 16)
 
     # Вычисляем DCT для блока
     dct_block = np.dot(np.dot(coeffs, gray_mat), coeffs.T)
@@ -28,7 +28,7 @@ def my_idct(dct_block: np.array) -> np.array:
             if i == 0:
                 coeffs[i, j] = 1 / np.sqrt(8)
             else:
-                coeffs[i, j] = np.sqrt(2 / 8) * np.cos((np.pi * i * (2 * j + 1)) / (2 * 8))
+                coeffs[i, j] = np.sqrt(2 / 8) * np.cos((np.pi * i * (2 * j + 1)) / 16)
     idct_block = np.dot(np.dot(coeffs.T, dct_block), coeffs)
     idct_block = np.round(idct_block).astype(np.uint8)
     return idct_block

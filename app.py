@@ -118,7 +118,7 @@ def sender():
     for filename in os.listdir(path):
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(path, filename)) as image:
-            arr = np.asarray(image, dtype=np.uint8)
+            arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
             # Получаем размер изображения
             height, width = arr.shape[0:2]
 
@@ -143,9 +143,14 @@ def sender():
 
     np.random.seed(key)
     chosen_fragments = []
+
+    start = 0
+    p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
+
     for ch in message:
+        gamma = np.uint8(gamma_function(start, 2 ** p))
+
         ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
-        gamma = np.uint8(gamma_function(0, 2 ** 8))
 
         result = np.uint8(np.bitwise_xor(ch_ord, gamma))
         if hashes.get(result, None) is not None:
@@ -201,7 +206,7 @@ def receiver():
         end_i = int(values[3])
         end_j = int(values[4])
         with Image.open(os.path.join(path, filename)) as image:
-            arr = np.asarray(image)
+            arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
 
         phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
         hashes.append(phash)
@@ -209,8 +214,12 @@ def receiver():
     # Декодируем сообщение
     path = 'repository/resources'
     buffer = io.StringIO()
+
+    start = 0
+    p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
     for h in hashes:
-        gamma = np.uint8(gamma_function(0, 2 ** 8))
+        gamma = np.uint8(gamma_function(start, 2 ** p))
+
         m = np.uint8(np.bitwise_xor(h, gamma))
 
         m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
