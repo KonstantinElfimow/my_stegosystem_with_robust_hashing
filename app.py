@@ -115,6 +115,10 @@ def gamma_function(start: int, stop: int):
     return np.random.randint(start, stop)
 
 
+class MyConstants:
+    PHASH_SIZE = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
+
+
 @app.route('/')
 def sender():
     logger = io.StringIO()
@@ -138,7 +142,7 @@ def sender():
             # Получаем размер изображения
             height, width = arr.shape[0:2]
             # Размер окна
-            step = 128
+            step = 64
             for i in range(0, height - step + 1, step):
                 for j in range(0, width - step + 1, step):
                     start_i = i
@@ -151,10 +155,10 @@ def sender():
     # Окончание заполнения map
     end_time = time.perf_counter()
     # Примерное время заполнения map всевозможными ключами
-    approximate_time = format_time(((end_time - start_time) * (2 ** 16)) / len(hashes))
+    approximate_time = format_time(((end_time - start_time) * (2 ** MyConstants.PHASH_SIZE)) / len(hashes))
 
     logger.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
-    logger.write('Список заполнен на: {}\n'.format(len(hashes)))
+    logger.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.PHASH_SIZE))
     logger.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
 
     try:
@@ -166,10 +170,8 @@ def sender():
 
         chosen_fragments = []
 
-        start = 0
-        p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
         for ch in message:
-            gamma = np.uint8(gamma_function(start, 2 ** p))
+            gamma = np.uint8(gamma_function(0, 2 ** MyConstants.PHASH_SIZE))
 
             ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
 
@@ -225,6 +227,7 @@ def receiver():
         with open(os.path.join(images_dir, filename), mode='wb') as image_file:
             decoded_string = base64.b64decode(binary)
             image_file.write(decoded_string)
+    logger.write('Изображения были получены!\n')
 
     # Храним полученные хэши
     hashes = []
@@ -250,10 +253,8 @@ def receiver():
     key = int(os.getenv('KEY'))
     np.random.seed(key)
 
-    start = 0
-    p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
     for h in hashes:
-        gamma = np.uint8(gamma_function(start, 2 ** p))
+        gamma = np.uint8(gamma_function(0, 2 ** MyConstants.PHASH_SIZE))
 
         m = np.uint8(np.bitwise_xor(h, gamma))
 
@@ -266,7 +267,7 @@ def receiver():
         file.write(buffer.getvalue())
     del buffer
 
-    logger.write('Сообщение успешно получено!')
+    logger.write('Сообщение успешно декодировано!')
     with open(logger_path, mode='w', encoding='utf-8') as file:
         file.write(logger.getvalue())
 
