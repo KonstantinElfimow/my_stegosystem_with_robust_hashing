@@ -142,7 +142,7 @@ def sender():
             # Получаем размер изображения
             height, width = arr.shape[0:2]
             # Размер окна
-            step = 64
+            step = 96
             for i in range(0, height - step + 1, step):
                 for j in range(0, width - step + 1, step):
                     start_i = i
