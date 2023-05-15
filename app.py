@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import time
 from PIL import Image
 import numpy as np
 import requests
@@ -56,7 +57,7 @@ def get_images():
     for row in rows:
         d = {row[0]: row[1]}
         data.update(d)
-    data = json.dumps(data)
+    data = json.dumps(data, ensure_ascii=False)
 
     return jsonify(data), 200
 
@@ -86,7 +87,7 @@ def get_cutouts():
     for row in rows:
         d = {row[0]: [row[1], row[2], row[3], row[4], row[5]]}
         data.update(d)
-    data = json.dumps(data)
+    data = json.dumps(data, ensure_ascii=False)
 
     return jsonify(data), 200
 
@@ -103,25 +104,40 @@ def post_cutouts():
     return 'OK', 201
 
 
+def format_time(seconds: float) -> str:
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    return '{:d} дней, {:02d}:{:02d}:{:.2f}'.format(int(days), int(hours), int(minutes), seconds)
+
+
 def gamma_function(start: int, stop: int):
     return np.random.randint(start, stop)
 
 
 @app.route('/')
 def sender():
-    # Путь к папке с изображениями
-    path = 'repository/resources/sent_images'
+    logger = io.StringIO()
 
-    # Создаем словарь для сохранения pHash
+    images_dir: str = 'repository/resources/sent_images'
+    message_path: str = 'repository/resources/message.txt'
+    logger_path: str = 'sender_log.txt'
+
+    # Создаем словарь для сохранения перцептивных хешей и их кадров {pHash: [cutout_1, ...]}
     hashes = {}
+    # Создаём counter для отслеживания коллизий в map
+    counter = 0
+
+    # Начало заполнения map
+    start_time = time.perf_counter()
     # Проходимся по всем файлам в папке
-    for filename in os.listdir(path):
+    for filename in os.listdir(images_dir):
         # Открываем изображение и вычисляем перцептивный хэш
-        with Image.open(os.path.join(path, filename)) as image:
+        with Image.open(os.path.join(images_dir, filename)) as image:
             arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
             # Получаем размер изображения
             height, width = arr.shape[0:2]
-
+            # Размер окна
             step = 128
             for i in range(0, height - step + 1, step):
                 for j in range(0, width - step + 1, step):
@@ -131,57 +147,74 @@ def sender():
                     end_j = j + step
                     phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
                     hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
+                    counter += 1
+    # Окончание заполнения map
+    end_time = time.perf_counter()
+    # Примерное время заполнения map всевозможными ключами
+    approximate_time = format_time(((end_time - start_time) * (2 ** 16)) / len(hashes))
 
-    print(len(hashes))
-    # print(hashes)
+    logger.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
+    logger.write('Список заполнен на: {}\n'.format(len(hashes)))
+    logger.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
 
-    path = 'repository/resources/message.txt'
-    with open(path, mode='r', encoding='utf-8') as file:
-        message = file.read()
+    try:
+        with open(message_path, mode='r', encoding='utf-8') as file:
+            message = file.read()
 
-    key = int(os.getenv('KEY'))
+        key = int(os.getenv('KEY'))
+        np.random.seed(key)
 
-    np.random.seed(key)
-    chosen_fragments = []
+        chosen_fragments = []
 
-    start = 0
-    p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
+        start = 0
+        p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
+        for ch in message:
+            gamma = np.uint8(gamma_function(start, 2 ** p))
 
-    for ch in message:
-        gamma = np.uint8(gamma_function(start, 2 ** p))
+            ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
 
-        ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
+            result = np.uint8(np.bitwise_xor(ch_ord, gamma))
 
-        result = np.uint8(np.bitwise_xor(ch_ord, gamma))
-        if hashes.get(result, None) is not None:
+            if hashes.get(result, None) is None:
+                raise ValueError('Map не был полностью заполнен!')
+
             chosen_fragments.append(hashes[result][0])
-        else:
-            raise ValueError('Map не был полностью заполнен!')
-    np.random.seed()
-    requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
+    except ValueError as e:
+        logger.write(f'Ошибка: {str(e)}')
+        raise e
+    else:
+        requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
+        logger.write('Сообщение было успешно закодировано!\n')
+    finally:
+        np.random.seed()
 
-    # Путь к папке с изображениями
-    path = 'repository/resources/sent_images'
+    with open(logger_path, mode='w', encoding='utf-8') as file:
+        file.write(logger.getvalue())
+    del logger
+
     # Создаем список для хранения и последующей передачи изображений в бинарном режиме
     filename_binary = {}
     # Проходимся по всем файлам в папке
-    for filename in os.listdir(path):
-        with open(os.path.join(path, filename), 'rb') as image_file:
+    for filename in os.listdir(images_dir):
+        with open(os.path.join(images_dir, filename), 'rb') as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        filename_binary.update({filename: encoded_string})
+        filename_binary[filename] = encoded_string
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
+
+    with open(logger_path, mode='a', encoding='utf-8') as file:
+        file.write('Успех!')
 
     return 'OK', 200
 
 
 @app.route('/get_images')
 def receiver():
-    filename = int(os.getenv('KEY'))
-    np.random.seed(filename)
+    logger = io.StringIO()
 
-    # Путь к папке, куда будет сохранять изображения
-    path = 'repository/resources/received_images'
+    images_dir: str = 'repository/resources/received_images'
+    message_path: str = 'repository/resources/message_recovered.txt'
+    logger_path: str = 'receiver_log.txt'
 
     data_json = requests.get(f'{request.host_url}/api/data/images', headers=headers).json()
     # Преобразуем json в dict
@@ -189,7 +222,7 @@ def receiver():
     # декодирование строки из формата base64
     for filename, binary in data.items():
         # сохранение изображения в файл
-        with open(os.path.join(path, filename), 'wb') as image_file:
+        with open(os.path.join(images_dir, filename), mode='wb') as image_file:
             decoded_string = base64.b64decode(binary)
             image_file.write(decoded_string)
 
@@ -205,15 +238,17 @@ def receiver():
         start_j = int(values[2])
         end_i = int(values[3])
         end_j = int(values[4])
-        with Image.open(os.path.join(path, filename)) as image:
+        with Image.open(os.path.join(images_dir, filename)) as image:
             arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
 
         phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
         hashes.append(phash)
 
     # Декодируем сообщение
-    path = 'repository/resources'
     buffer = io.StringIO()
+
+    key = int(os.getenv('KEY'))
+    np.random.seed(key)
 
     start = 0
     p = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
@@ -225,10 +260,16 @@ def receiver():
         m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
         buffer.write(m_i)
 
-    with open(os.path.join(path, 'message_recovered.txt'), mode='w', encoding='utf-8') as file:
-        file.write(buffer.getvalue())
-
     np.random.seed()
+
+    with open(message_path, mode='w', encoding='utf-8') as file:
+        file.write(buffer.getvalue())
+    del buffer
+
+    logger.write('Сообщение успешно получено!')
+    with open(logger_path, mode='w', encoding='utf-8') as file:
+        file.write(logger.getvalue())
+
     return 'OK', 200
 
 

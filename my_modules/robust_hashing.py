@@ -4,7 +4,7 @@ from my_modules.pca import my_pca
 from my_modules.dct import my_dct
 
 
-def improved_phash(image: Image) -> np.uint8:
+def improved_phash(image: Image) -> np.uint16:
     # Преобразуем в оттенки серого
     img = np.asarray(image.convert('L'), dtype=np.uint8).copy()
 
@@ -36,7 +36,14 @@ def improved_phash(image: Image) -> np.uint8:
     # Вычисление pHash
     dct = my_dct(reconstructed_image)
 
-    dct_low_freq = dct[0: 3, 0: 3].copy().reshape(-1)
-    x = (np.arange(8))[dct_low_freq[1:] >= dct_low_freq[1:].mean()]
-    h = np.uint8(np.sum(np.power(2, x)))
+    mid = np.median(dct, axis=None)
+    flags = []
+    for i in range(0, 8, 2):
+        for j in range(0, 8, 2):
+            if np.median(dct[i: i + 2, j: j + 2], axis=None) >= mid:
+                flags.append(True)
+            else:
+                flags.append(False)
+
+    h = np.uint16(np.sum(np.power(2, np.arange(16)[flags])))
     return h

@@ -20,7 +20,7 @@ def my_dct(gray_mat: np.uint8) -> np.array:
 
 
 def my_idct(dct_block: np.array) -> np.array:
-    """Inverse two-dimensional discrete cosine transform"""
+    """Обратное двумерное дискретное косинусное преобразование"""
     assert dct_block.shape == (8, 8)
     coeffs = np.zeros((8, 8))
     for i in range(8):
