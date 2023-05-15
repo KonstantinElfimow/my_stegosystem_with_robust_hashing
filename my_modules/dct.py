@@ -4,7 +4,7 @@ import numpy as np
 def my_dct(gray_mat: np.uint8) -> np.array:
     """ Двумерное дискретное косинусное преобразование """
     assert gray_mat.shape == (8, 8)
-    assert gray_mat.dtype == np.uint8
+    # assert gray_mat.dtype == np.uint8
     # Создаем матрицу коэффициентов
     coeffs = np.zeros((8, 8))
     for i in range(8):

@@ -3,13 +3,14 @@ import io
 import json
 import os
 import time
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import requests
 import sqlite3
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from my_modules.robust_hashing import improved_phash
+from my_modules.hamming import my_hamming
 
 app = Flask(__name__)
 
@@ -139,19 +140,19 @@ def sender():
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(images_dir, filename)) as image:
             arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
-            # Получаем размер изображения
-            height, width = arr.shape[0:2]
-            # Размер окна
-            step = 96
-            for i in range(0, height - step + 1, step):
-                for j in range(0, width - step + 1, step):
-                    start_i = i
-                    start_j = j
-                    end_i = i + step
-                    end_j = j + step
-                    phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
-                    hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
-                    counter += 1
+        # Получаем размер изображения
+        height, width = arr.shape[0:2]
+        # Размер окна
+        step = 128
+        for i in range(0, height - step + 1, step):
+            for j in range(0, width - step + 1, step):
+                start_i = i
+                start_j = j
+                end_i = i + step
+                end_j = j + step
+                phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
+                hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
+                counter += 1
     # Окончание заполнения map
     end_time = time.perf_counter()
     # Примерное время заполнения map всевозможными ключами
@@ -274,5 +275,59 @@ def receiver():
     return 'OK', 200
 
 
+def test_phash():
+    images_dir: str = 'repository/resources/sent_images'
+    hashes_1 = []
+    counter = 0
+    filename = os.listdir(images_dir)[0]
+
+    with Image.open(os.path.join(images_dir, filename)) as image:
+        arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
+    height, width = arr.shape[0:2]
+    # Размер окна
+    step = 128
+    for i in range(0, height - step + 1, step):
+        for j in range(0, width - step + 1, step):
+            start_i = i
+            start_j = j
+            end_i = i + step
+            end_j = j + step
+            phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
+            hashes_1.append(phash)
+            counter += 1
+    del arr
+
+    hashes_2 = []
+    with Image.open(os.path.join(images_dir, filename)) as image:
+        # Преобразование изображения в массив NumPy
+        arr = np.asarray(image)
+
+        # Создание гауссовского шума
+        noise = np.random.normal(0, 10, arr.shape)
+        noisy_image_array = np.clip(arr + noise, 0, 255).astype(np.uint8)
+
+        # Преобразование массива NumPy обратно в изображение
+        noisy_image = Image.fromarray(noisy_image_array)
+
+        # Применение размытия Гаусса к изображению
+        blurred_image = noisy_image.filter(ImageFilter.GaussianBlur(radius=2))
+        arr = np.asarray(blurred_image.convert('YCbCr'), dtype=np.uint8)
+    height, width = arr.shape[0:2]
+    # Размер окна
+    step = 128
+    for i in range(0, height - step + 1, step):
+        for j in range(0, width - step + 1, step):
+            start_i = i
+            start_j = j
+            end_i = i + step
+            end_j = j + step
+            phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
+            hashes_2.append(phash)
+            counter += 1
+    print(f'Всего шагов было сделано {counter}')
+    print(my_hamming(hashes_1[1], hashes_2[1]) / 16 < 0.5)
+
+
 if __name__ == '__main__':
+    # test_phash()
     app.run(host='0.0.0.0', port=port, debug=True)

@@ -1,7 +1,7 @@
 from PIL import Image
 import numpy as np
 from my_modules.pca import my_pca
-from my_modules.dct import my_dct
+from my_modules.dct import my_dct, my_idct
 
 
 def improved_phash(image: Image) -> np.uint16:
@@ -19,7 +19,7 @@ def improved_phash(image: Image) -> np.uint16:
     vectors = np.asarray(blocks, dtype=np.uint8).reshape(-1, 64)
     del blocks
 
-    # Восстановленные блоки
+    # Ухудшаем качество перед вычислением pHash
     k = len(vectors) // 2
     reconstructed = np.asarray(my_pca(vectors, k), dtype=np.complex64).real.astype(np.uint8).reshape(-1, 8, 8)
 
@@ -36,14 +36,12 @@ def improved_phash(image: Image) -> np.uint16:
     # Вычисление pHash
     dct = my_dct(reconstructed_image)
 
-    mid = np.median(dct, axis=None)
-    flags = []
-    for i in range(0, 8, 2):
-        for j in range(0, 8, 2):
-            if np.median(dct[i: i + 2, j: j + 2], axis=None) >= mid:
-                flags.append(True)
-            else:
-                flags.append(False)
+    # Вычисление медианы
+    median = np.median(dct)
 
+    # Вычисление больше или равно
+    flags = [np.median(dct[i: i + 2, j: j + 2]) >= median for i in range(0, 8, 2) for j in range(0, 8, 2)]
+
+    # Вычисление pHash
     h = np.uint16(np.sum(np.power(2, np.arange(16)[flags])))
     return h
