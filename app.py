@@ -9,8 +9,7 @@ import requests
 import sqlite3
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
-from my_modules.robust_hashing import improved_phash
-from my_modules.hamming import my_hamming
+import robust_hashing as rh
 
 app = Flask(__name__)
 
@@ -112,12 +111,13 @@ def format_time(seconds: float) -> str:
     return '{:d} дней, {:02d}:{:02d}:{:.2f}'.format(int(days), int(hours), int(minutes), seconds)
 
 
-def gamma_function(start: int, stop: int):
-    return np.random.randint(start, stop)
+def gamma_function(stop: int) -> np.uint:
+    return np.random.randint(0, stop)
 
 
 class MyConstants:
-    PHASH_SIZE = improved_phash.__annotations__['return'](0).dtype.itemsize * 8
+    HASH_SIZE: int = 16
+    HIGHFREQ_FACTOR: int = 4
 
 
 @app.route('/')
@@ -139,7 +139,7 @@ def sender():
     for filename in os.listdir(images_dir):
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(images_dir, filename)) as image:
-            arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
+            arr = np.asarray(image, dtype=np.uint8)
         # Получаем размер изображения
         height, width = arr.shape[0:2]
         # Размер окна
@@ -150,16 +150,18 @@ def sender():
                 start_j = j
                 end_i = i + step
                 end_j = j + step
-                phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
-                hashes.setdefault(phash, []).append([filename, start_i, start_j, end_i, end_j])
+                h = rh.phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]),
+                             hash_size=MyConstants.HASH_SIZE,
+                             highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                hashes.setdefault(int(h), []).append([filename, start_i, start_j, end_i, end_j])
                 counter += 1
     # Окончание заполнения map
     end_time = time.perf_counter()
     # Примерное время заполнения map всевозможными ключами
-    approximate_time = format_time(((end_time - start_time) * (2 ** MyConstants.PHASH_SIZE)) / len(hashes))
+    approximate_time = format_time(((end_time - start_time) * (2 ** MyConstants.HASH_SIZE)) / len(hashes))
 
     logger.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
-    logger.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.PHASH_SIZE))
+    logger.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.HASH_SIZE))
     logger.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
 
     try:
@@ -172,11 +174,9 @@ def sender():
         chosen_fragments = []
 
         for ch in message:
-            gamma = np.uint8(gamma_function(0, 2 ** MyConstants.PHASH_SIZE))
-
+            gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
             ch_ord = np.uint8(int(''.join(format(x, '08b') for x in ch.encode('utf-8')), 2))
-
-            result = np.uint8(np.bitwise_xor(ch_ord, gamma))
+            result = np.bitwise_xor(ch_ord, gamma)
 
             if hashes.get(result, None) is None:
                 raise ValueError('Map не был полностью заполнен!')
@@ -189,11 +189,10 @@ def sender():
         requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
         logger.write('Сообщение было успешно закодировано!\n')
     finally:
+        with open(logger_path, mode='w', encoding='utf-8') as file:
+            file.write(logger.getvalue())
+        del logger
         np.random.seed()
-
-    with open(logger_path, mode='w', encoding='utf-8') as file:
-        file.write(logger.getvalue())
-    del logger
 
     # Создаем список для хранения и последующей передачи изображений в бинарном режиме
     filename_binary = {}
@@ -204,9 +203,6 @@ def sender():
         filename_binary[filename] = encoded_string
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
-
-    with open(logger_path, mode='a', encoding='utf-8') as file:
-        file.write('Успех!')
 
     return 'OK', 200
 
@@ -243,10 +239,12 @@ def receiver():
         end_i = int(values[3])
         end_j = int(values[4])
         with Image.open(os.path.join(images_dir, filename)) as image:
-            arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
+            arr = np.asarray(image, dtype=np.uint8)
 
-        phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
-        hashes.append(phash)
+        h = rh.phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]),
+                     hash_size=MyConstants.HASH_SIZE,
+                     highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+        hashes.append(h)
 
     # Декодируем сообщение
     buffer = io.StringIO()
@@ -255,9 +253,8 @@ def receiver():
     np.random.seed(key)
 
     for h in hashes:
-        gamma = np.uint8(gamma_function(0, 2 ** MyConstants.PHASH_SIZE))
-
-        m = np.uint8(np.bitwise_xor(h, gamma))
+        gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
+        m = np.uint8(np.bitwise_xor(int(h), gamma))
 
         m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
         buffer.write(m_i)
@@ -276,56 +273,45 @@ def receiver():
 
 
 def test_phash():
-    images_dir: str = 'repository/resources/sent_images'
-    hashes_1 = []
-    counter = 0
-    filename = os.listdir(images_dir)[0]
+    filename = 'test.png'
 
-    with Image.open(os.path.join(images_dir, filename)) as image:
-        arr = np.asarray(image.convert('YCbCr'), dtype=np.uint8)
-    height, width = arr.shape[0:2]
-    # Размер окна
-    step = 128
-    for i in range(0, height - step + 1, step):
-        for j in range(0, width - step + 1, step):
-            start_i = i
-            start_j = j
-            end_i = i + step
-            end_j = j + step
-            phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
-            hashes_1.append(phash)
-            counter += 1
-    del arr
+    with Image.open(filename) as image:
+        h = rh.phash(image,
+                     hash_size=MyConstants.HASH_SIZE,
+                     highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+    for r in range(1, 30, 5):
+        with Image.open(filename) as image:
+            rot_h = rh.phash(image.rotate(r),
+                             hash_size=MyConstants.HASH_SIZE,
+                             highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
 
-    hashes_2 = []
-    with Image.open(os.path.join(images_dir, filename)) as image:
-        # Преобразование изображения в массив NumPy
-        arr = np.asarray(image)
+        print('Поворот (градус: {}): {} расстояние Хемминга'.format(r, h - rot_h))
 
-        # Создание гауссовского шума
-        noise = np.random.normal(0, 10, arr.shape)
-        noisy_image_array = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    # Преобразование изображения в массив NumPy
+    with Image.open(filename) as image:
+        image_array = np.array(image)
 
-        # Преобразование массива NumPy обратно в изображение
-        noisy_image = Image.fromarray(noisy_image_array)
+    # Создание гауссовского шума
+    noise = np.random.normal(0, 10, image_array.shape)
+    noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
 
-        # Применение размытия Гаусса к изображению
-        blurred_image = noisy_image.filter(ImageFilter.GaussianBlur(radius=2))
-        arr = np.asarray(blurred_image.convert('YCbCr'), dtype=np.uint8)
-    height, width = arr.shape[0:2]
-    # Размер окна
-    step = 128
-    for i in range(0, height - step + 1, step):
-        for j in range(0, width - step + 1, step):
-            start_i = i
-            start_j = j
-            end_i = i + step
-            end_j = j + step
-            phash: np.uint8 = improved_phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]))
-            hashes_2.append(phash)
-            counter += 1
-    print(f'Всего шагов было сделано {counter}')
-    print(my_hamming(hashes_1[1], hashes_2[1]) / 16 < 0.5)
+    # Преобразование массива NumPy обратно в изображение
+    noisy_image = Image.fromarray(noisy_image_array)
+    for r in range(1, 30, 5):
+        gauss_h = rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                         hash_size=MyConstants.HASH_SIZE,
+                         highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+
+        print('Гауссовский шум (радиус: {}): {} расстояние Хемминга'.format(r, h - gauss_h))
+
+    # Изменение яркости изображения
+    for x in range(1, 10):
+        with Image.open(filename) as image:
+            enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
+        brightened_h = rh.phash(enhancer,
+                                hash_size=MyConstants.HASH_SIZE,
+                                highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+        print('Изменение яркости изображения (на {}%): {} расстояние Хемминга'.format(100 - x * 10, h - brightened_h))
 
 
 if __name__ == '__main__':
