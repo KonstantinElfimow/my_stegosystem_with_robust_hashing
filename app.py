@@ -26,20 +26,6 @@ conn.execute('CREATE TABLE IF NOT EXISTS images '
 conn.commit()
 conn.close()
 
-conn = sqlite3.connect('./repository/images.db')
-# Дропаем, если таблица уже существует
-conn.execute('DROP TABLE IF EXISTS cutouts')
-# Создаем таблицу для хранения фрагментов изображений
-conn.execute('CREATE TABLE IF NOT EXISTS cutouts '
-             '(id INTEGER PRIMARY KEY AUTOINCREMENT, '
-             'filename VARCHAR(255), '
-             'start_i INTEGER, '
-             'start_j INTEGER, '
-             'end_i INTEGER, '
-             'end_j INTEGER)')
-conn.commit()
-conn.close()
-
 load_dotenv('.env')
 
 
@@ -73,35 +59,10 @@ def post_images():
     return 'OK', 201
 
 
-@app.route('/api/data/cutouts', methods=['GET'])
-def get_cutouts():
-    conn = sqlite3.connect('repository/images.db')
-    c = conn.cursor()
-    c.execute('SELECT * '
-              'FROM cutouts')
-    rows = c.fetchall()
-    conn.close()
-
-    # Преобразуем данные в json
-    data = {}
-    for row in rows:
-        d = {row[0]: [row[1], row[2], row[3], row[4], row[5]]}
-        data.update(d)
-    data = json.dumps(data, ensure_ascii=False)
-
-    return jsonify(data), 200
-
-
-@app.route('/api/data/cutouts', methods=['POST'])
-def post_cutouts():
-    data = request.get_json()
-    conn = sqlite3.connect('repository/images.db')
-    c = conn.cursor()
-    c.executemany('INSERT OR REPLACE INTO cutouts (filename, start_i, start_j, end_i, end_j) VALUES (?, ?, ?, ?, ?)',
-                  [(l[0], l[1], l[2], l[3], l[4]) for l in data])
-    conn.commit()
-    conn.close()
-    return 'OK', 201
+class MyConstants:
+    HASH_SIZE: int = 16
+    HIGHFREQ_FACTOR: int = 4
+    WINDOW_SIZE: int = 128
 
 
 def format_time(seconds: float) -> str:
@@ -115,11 +76,6 @@ def gamma_function(stop: int) -> np.uint:
     return np.random.randint(0, stop)
 
 
-class MyConstants:
-    HASH_SIZE: int = 16
-    HIGHFREQ_FACTOR: int = 4
-
-
 @app.route('/')
 def sender():
     logger = io.StringIO()
@@ -128,32 +84,37 @@ def sender():
     message_path: str = 'repository/resources/message.txt'
     logger_path: str = 'sender_log.txt'
 
-    # Создаем словарь для сохранения перцептивных хешей и их кадров {pHash: [cutout_1, ...]}
-    hashes = {}
-    # Создаём counter для отслеживания коллизий в map
-    counter = 0
-
     # Начало заполнения map
     start_time = time.perf_counter()
+
+    # Создаем словарь для сохранения перцептивных хешей и их кадров {pHash: [cutout_1, ...]}
+    hashes: dict[int: list] = dict()
+    # Создаём counter для отслеживания коллизий в map
+    counter = 0
     # Проходимся по всем файлам в папке
     for filename in os.listdir(images_dir):
         # Открываем изображение и вычисляем перцептивный хэш
         with Image.open(os.path.join(images_dir, filename)) as image:
             arr = np.asarray(image, dtype=np.uint8)
-        # Получаем размер изображения
+
+        block_size = MyConstants.WINDOW_SIZE
+
         height, width = arr.shape[0:2]
-        # Размер окна
-        step = 128
-        for i in range(0, height - step + 1, step):
-            for j in range(0, width - step + 1, step):
-                start_i = i
-                start_j = j
-                end_i = i + step
-                end_j = j + step
-                h = rh.phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]),
-                             hash_size=MyConstants.HASH_SIZE,
-                             highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
-                hashes.setdefault(int(h), []).append([filename, start_i, start_j, end_i, end_j])
+        for i in range(0, height - block_size + 1, block_size):
+            for j in range(0, width - block_size + 1, block_size):
+                block = arr[i:i + block_size, j:j + block_size]
+
+                h: rh.ImageHash = rh.phash(Image.fromarray(block),
+                                           hash_size=MyConstants.HASH_SIZE,
+                                           highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+
+                left = j
+                upper = i
+                right = left + block_size
+                lower = upper + block_size
+                coordinates: tuple = left, upper, right, lower
+
+                hashes.setdefault(h.value, []).append([filename, coordinates])
                 counter += 1
     # Окончание заполнения map
     end_time = time.perf_counter()
@@ -163,6 +124,7 @@ def sender():
     logger.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
     logger.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.HASH_SIZE))
     logger.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
+    del counter
 
     try:
         with open(message_path, mode='r', encoding='utf-8') as file:
@@ -171,7 +133,7 @@ def sender():
         key = int(os.getenv('KEY'))
         np.random.seed(key)
 
-        chosen_fragments = []
+        chosen_frames = []
 
         for ch in message:
             gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
@@ -181,12 +143,11 @@ def sender():
             if hashes.get(result, None) is None:
                 raise ValueError('Map не был полностью заполнен!')
 
-            chosen_fragments.append(hashes[result][0])
+            chosen_frames.append(hashes[result][0])
     except ValueError as e:
         logger.write(f'Ошибка: {str(e)}')
         raise e
     else:
-        requests.post(f'{request.host_url}/api/data/cutouts', json=chosen_fragments, headers=headers)
         logger.write('Сообщение было успешно закодировано!\n')
     finally:
         with open(logger_path, mode='w', encoding='utf-8') as file:
@@ -194,13 +155,26 @@ def sender():
         del logger
         np.random.seed()
 
-    # Создаем список для хранения и последующей передачи изображений в бинарном режиме
+    # Создаем словарь для хранения и последующей передачи изображений в бинарном режиме
     filename_binary = {}
-    # Проходимся по всем файлам в папке
-    for filename in os.listdir(images_dir):
-        with open(os.path.join(images_dir, filename), 'rb') as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        filename_binary[filename] = encoded_string
+    counter = 0
+    for filename_coors in chosen_frames:
+        filename: str = filename_coors[0]
+        coordinates: tuple = filename_coors[1]
+
+        suffix = filename.split('.')[-1]
+
+        with Image.open(os.path.join(images_dir, filename)) as image:
+            frame = image.crop(coordinates)
+
+        byte_stream = io.BytesIO()
+        f = 'JPEG' if suffix.lower() == 'jpg' else suffix
+        frame.save(byte_stream, format=f)
+        byte_stream.seek(0)
+
+        encoded_string = base64.b64encode(byte_stream.read()).decode('utf-8')
+        filename_binary[f'{counter}.{suffix}'] = encoded_string
+        counter += 1
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
 
@@ -212,8 +186,14 @@ def receiver():
     logger = io.StringIO()
 
     images_dir: str = 'repository/resources/received_images'
+    if not os.path.exists(images_dir):
+        os.makedirs(images_dir)
+
     message_path: str = 'repository/resources/message_recovered.txt'
     logger_path: str = 'receiver_log.txt'
+
+    # Храним полученные хэши
+    hashes: list[int] = []
 
     data_json = requests.get(f'{request.host_url}/api/data/images', headers=headers).json()
     # Преобразуем json в dict
@@ -224,27 +204,14 @@ def receiver():
         with open(os.path.join(images_dir, filename), mode='wb') as image_file:
             decoded_string = base64.b64decode(binary)
             image_file.write(decoded_string)
-    logger.write('Изображения были получены!\n')
 
-    # Храним полученные хэши
-    hashes = []
-    # Открываем изображение и вычисляем перцептивный хэш
-    data_json = requests.get(f'{request.host_url}/api/data/cutouts', headers=headers).json()
-    # Преобразуем json
-    data = json.loads(data_json)
-    for values in data.values():
-        filename = values[0]
-        start_i = int(values[1])
-        start_j = int(values[2])
-        end_i = int(values[3])
-        end_j = int(values[4])
         with Image.open(os.path.join(images_dir, filename)) as image:
-            arr = np.asarray(image, dtype=np.uint8)
+            h: rh.ImageHash = rh.phash(image,
+                                       hash_size=MyConstants.HASH_SIZE,
+                                       highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+            hashes.append(h.value)
 
-        h = rh.phash(Image.fromarray(arr[start_i: end_i, start_j: end_j]),
-                     hash_size=MyConstants.HASH_SIZE,
-                     highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
-        hashes.append(h)
+    logger.write('Изображения были получены!\n')
 
     # Декодируем сообщение
     buffer = io.StringIO()
@@ -254,7 +221,7 @@ def receiver():
 
     for h in hashes:
         gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
-        m = np.uint8(np.bitwise_xor(int(h), gamma))
+        m = np.uint8(np.bitwise_xor(h, gamma))
 
         m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
         buffer.write(m_i)
@@ -299,12 +266,12 @@ def test_phash():
     noisy_image = Image.fromarray(noisy_image_array)
     for r in range(1, 30, 5):
         gauss_h = rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
-                         hash_size=MyConstants.HASH_SIZE,
-                         highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                           hash_size=MyConstants.HASH_SIZE,
+                           highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
 
         print('Гауссовский шум (радиус: {}): {} расстояние Хемминга'.format(r, h - gauss_h))
 
-    # Изменение яркости изображения
+    # Изменение яркости изображения (затемнение)
     for x in range(1, 10):
         with Image.open(filename) as image:
             enhancer = ImageEnhance.Brightness(image).enhance(x / 10)

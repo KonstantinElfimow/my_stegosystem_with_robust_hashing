@@ -25,49 +25,50 @@ class ImageHash:
     """Инкапсуляция хеша. Может использоваться для ключей словаря и сравнений."""
 
     def __init__(self, binary_array: np.array):
-        self.__hash = binary_array.flatten()
+        self.__binary_array = binary_array.flatten()
+        self.__value = sum([2 ** i for i, v in enumerate(self.__binary_array) if v])
 
     @property
-    def hash(self):
-        return self.__hash
+    def binary_array(self):
+        return self.__binary_array
+
+    @property
+    def value(self):
+        return self.__value
 
     def __str__(self):
-        return _binary_array_to_hex(self.hash)
+        return _binary_array_to_hex(self.binary_array)
 
     def __repr__(self):
-        return repr(self.hash)
+        return repr(self.value)
 
     def __sub__(self, other) -> int:
         if other.__class__ is self.__class__:
-            if self.hash.size != other.hash.size:
-                raise TypeError('ImageHashes must be of the same shape.', self.hash.shape, other.hash.shape)
-            return np.count_nonzero(self.hash != other.hash)
+            if self.binary_array.size != other.binary_array.size:
+                raise TypeError('ImageHash должны иметь одинаковую длину.', self.binary_array.size, other.hash.size)
+            return np.count_nonzero(self.binary_array != other.binary_array)
         else:
             return NotImplemented
 
     def __eq__(self, other) -> bool:
         if other.__class__ is self.__class__:
-            return np.array_equal(self.hash, other.hash)
+            return np.array_equal(self.binary_array, other.binary_array)
         else:
             return NotImplemented
 
     def __ne__(self, other) -> bool:
         if other.__class__ is self.__class__:
-            return not np.array_equal(self.hash, other.hash)
+            return not np.array_equal(self.binary_array, other.binary_array)
         else:
             return NotImplemented
 
-    def __int__(self) -> int:
-        # Возвращает целое число
-        return sum([2 ** i for i, v in enumerate(self.hash) if v])
-
     def __hash__(self) -> int:
         # Возвращает целое число
-        return int(self)
+        return self.value
 
     def __len__(self):
         # Возвращает битовую длину хеша
-        return self.hash.size
+        return self.binary_array.size
 
 
 def uint_to_hash(integer: np.uint) -> ImageHash:
