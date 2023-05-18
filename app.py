@@ -13,6 +13,7 @@ from flask import Flask, jsonify, request
 import robust_hashing as rh
 from image_reconstruction import ImageReconstruction
 
+
 app = Flask(__name__)
 
 port = 5000
@@ -190,7 +191,6 @@ def receiver():
         os.makedirs(images_dir)
 
     message_path: str = 'repository/resources/message_recovered.txt'
-    logger_path: str = 'receiver_log.txt'
 
     # Храним полученные хэши
     hashes: list[int] = []
@@ -280,21 +280,21 @@ class TestPhash(unittest.TestCase):
             self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 64)
 
 
-def spoil_images(images_dir: str):
-    if not os.path.exists(images_dir):
-        raise ValueError('Такой директории не существует!')
-
-    limit = len(os.listdir(images_dir))
-    for i, filename in enumerate(os.listdir(images_dir)):
-        if i >= limit:
-            break
-        with Image.open(os.path.join(images_dir, filename)) as image:
-            rotated = image.rotate(5)
-            new_image = ImageReconstruction.reconstruction_with_pca(rotated, 5)
-            suffix = filename.split('.')[-1]
-            new_image.save(os.path.join(images_dir, f'image_{i}.{suffix}'))
-
-            image.save(os.path.join(images_dir, f'compressed_{i}.{suffix}'), quality=50)
+# def spoil_images(images_dir: str):
+#     if not os.path.exists(images_dir):
+#         raise ValueError('Такой директории не существует!')
+#
+#     limit = len(os.listdir(images_dir))
+#     for i, filename in enumerate(os.listdir(images_dir)):
+#         if i >= limit:
+#             break
+#         with Image.open(os.path.join(images_dir, filename)) as image:
+#             rotated = image.rotate(5)
+#             new_image = ImageReconstruction.reconstruction_with_pca(rotated, 5)
+#             suffix = filename.split('.')[-1]
+#             new_image.save(os.path.join(images_dir, f'image_{i}.{suffix}'))
+#
+#             image.save(os.path.join(images_dir, f'compressed_{i}.{suffix}'), quality=50)
 
 
 if __name__ == '__main__':
