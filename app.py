@@ -3,6 +3,7 @@ import io
 import json
 import os
 import time
+import unittest
 from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import requests
@@ -31,12 +32,12 @@ load_dotenv('.env')
 
 @app.route('/api/data/images', methods=['GET'])
 def get_images():
-    conn = sqlite3.connect('repository/images.db')
-    c = conn.cursor()
+    connection = sqlite3.connect('repository/images.db')
+    c = connection.cursor()
     c.execute('SELECT * '
               'FROM images')
     rows = c.fetchall()
-    conn.close()
+    connection.close()
 
     # Преобразуем данные в json
     data = {}
@@ -51,11 +52,11 @@ def get_images():
 @app.route('/api/data/images', methods=['POST'])
 def post_images():
     data = request.get_json()
-    conn = sqlite3.connect('repository/images.db')
-    c = conn.cursor()
+    connection = sqlite3.connect('repository/images.db')
+    c = connection.cursor()
     c.executemany('INSERT OR REPLACE INTO images (filename, binary) VALUES (?, ?)', [(k, v) for k, v in data.items()])
-    conn.commit()
-    conn.close()
+    connection.commit()
+    connection.close()
     return 'OK', 201
 
 
@@ -69,7 +70,7 @@ def format_time(seconds: float) -> str:
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    return '{:d} дней, {:02d}:{:02d}:{:.2f}'.format(int(days), int(hours), int(minutes), seconds)
+    return '{:d} дней, {:02d}:{:02d}:{:.3f}'.format(int(days), int(hours), int(minutes), seconds)
 
 
 def gamma_function(stop: int) -> np.uint:
@@ -78,11 +79,11 @@ def gamma_function(stop: int) -> np.uint:
 
 @app.route('/')
 def sender():
-    logger = io.StringIO()
+    info = io.StringIO()
 
     images_dir: str = 'repository/resources/sent_images'
     message_path: str = 'repository/resources/message.txt'
-    logger_path: str = 'sender_log.txt'
+    info_path: str = 'encode_info.txt'
 
     # Начало заполнения map
     start_time = time.perf_counter()
@@ -121,9 +122,9 @@ def sender():
     # Примерное время заполнения map всевозможными ключами
     approximate_time = format_time(((end_time - start_time) * (2 ** MyConstants.HASH_SIZE)) / len(hashes))
 
-    logger.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
-    logger.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.HASH_SIZE))
-    logger.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
+    info.write('Примерное время заполнения всего map:\n{}\n'.format(approximate_time))
+    info.write('Map заполнен на {} из {}\n'.format(len(hashes), 2 ** MyConstants.HASH_SIZE))
+    info.write('Коллизий в map: {}\n'.format(counter - len(hashes)))
     del counter
 
     try:
@@ -145,14 +146,14 @@ def sender():
 
             chosen_frames.append(hashes[result][0])
     except ValueError as e:
-        logger.write(f'Ошибка: {str(e)}')
+        info.write(f'Ошибка: {str(e)}')
         raise e
     else:
-        logger.write('Сообщение было успешно закодировано!\n')
+        info.write('Сообщение было успешно закодировано!\n')
     finally:
-        with open(logger_path, mode='w', encoding='utf-8') as file:
-            file.write(logger.getvalue())
-        del logger
+        with open(info_path, mode='w', encoding='utf-8') as file:
+            file.write(info.getvalue())
+        del info
         np.random.seed()
 
     # Создаем словарь для хранения и последующей передачи изображений в бинарном режиме
@@ -183,8 +184,6 @@ def sender():
 
 @app.route('/get_images')
 def receiver():
-    logger = io.StringIO()
-
     images_dir: str = 'repository/resources/received_images'
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
@@ -211,76 +210,75 @@ def receiver():
                                        highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
             hashes.append(h.value)
 
-    logger.write('Изображения были получены!\n')
-
     # Декодируем сообщение
     buffer = io.StringIO()
 
     key = int(os.getenv('KEY'))
     np.random.seed(key)
-
     for h in hashes:
         gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
         m = np.uint8(np.bitwise_xor(h, gamma))
 
         m_i = str(int(m).to_bytes(1, byteorder='little', signed=False), encoding='utf-8')
         buffer.write(m_i)
-
     np.random.seed()
 
     with open(message_path, mode='w', encoding='utf-8') as file:
         file.write(buffer.getvalue())
     del buffer
 
-    logger.write('Сообщение успешно декодировано!')
-    with open(logger_path, mode='w', encoding='utf-8') as file:
-        file.write(logger.getvalue())
-
     return 'OK', 200
 
 
-def test_phash():
-    filename = 'test.png'
+class TestPhash(unittest.TestCase):
+    def test_phash(self):
+        print('Тестирование pHash!')
 
-    with Image.open(filename) as image:
-        h = rh.phash(image,
-                     hash_size=MyConstants.HASH_SIZE,
-                     highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
-    for r in range(1, 30, 5):
+        filename = 'test.png'
+
         with Image.open(filename) as image:
-            rot_h = rh.phash(image.rotate(r),
-                             hash_size=MyConstants.HASH_SIZE,
-                             highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+            h = rh.phash(image,
+                         hash_size=MyConstants.HASH_SIZE,
+                         highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+        for r in range(1, 30, 5):
+            with Image.open(filename) as image:
+                rot_h = rh.phash(image.rotate(r),
+                                 hash_size=MyConstants.HASH_SIZE,
+                                 highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+            result = h - rot_h
+            print('Расстояние Хемминга при повороте на {} градус: {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 2)
 
-        print('Поворот (градус: {}): {} расстояние Хемминга'.format(r, h - rot_h))
-
-    # Преобразование изображения в массив NumPy
-    with Image.open(filename) as image:
-        image_array = np.array(image)
-
-    # Создание гауссовского шума
-    noise = np.random.normal(0, 10, image_array.shape)
-    noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
-
-    # Преобразование массива NumPy обратно в изображение
-    noisy_image = Image.fromarray(noisy_image_array)
-    for r in range(1, 30, 5):
-        gauss_h = rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
-                           hash_size=MyConstants.HASH_SIZE,
-                           highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
-
-        print('Гауссовский шум (радиус: {}): {} расстояние Хемминга'.format(r, h - gauss_h))
-
-    # Изменение яркости изображения (затемнение)
-    for x in range(1, 10):
+        # Преобразование изображения в массив NumPy
         with Image.open(filename) as image:
-            enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
-        brightened_h = rh.phash(enhancer,
-                                hash_size=MyConstants.HASH_SIZE,
-                                highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
-        print('Изменение яркости изображения (на {}%): {} расстояние Хемминга'.format(100 - x * 10, h - brightened_h))
+            image_array = np.array(image)
+
+        # Создание гауссовского шума
+        noise = np.random.normal(0, 10, image_array.shape)
+        noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
+
+        # Преобразование массива NumPy обратно в изображение
+        noisy_image = Image.fromarray(noisy_image_array)
+        for r in range(1, 30, 5):
+            gauss_h = rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                               hash_size=MyConstants.HASH_SIZE,
+                               highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+            result = h - gauss_h
+            print('Расстояние Хемминга при Гауссовском шуме радиуса {} : {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 64)
+
+        # Изменение яркости изображения (затемнение)
+        for x in range(1, 10):
+            with Image.open(filename) as image:
+                enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
+            brightened_h = rh.phash(enhancer,
+                                    hash_size=MyConstants.HASH_SIZE,
+                                    highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+            result = h - brightened_h
+            print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
+            self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 64)
 
 
 if __name__ == '__main__':
-    # test_phash()
+    # unittest.main()
     app.run(host='0.0.0.0', port=port, debug=True)
