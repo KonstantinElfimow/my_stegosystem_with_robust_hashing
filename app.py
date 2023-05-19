@@ -9,6 +9,8 @@ import numpy as np
 import requests
 import sqlite3
 from flask import Flask, jsonify, request
+
+import image_reconstruction
 import robust_hashing as rh
 from image_reconstruction import ImageReconstruction
 
@@ -60,7 +62,7 @@ def post_images():
 
 class MyConstants:
     HASH_SIZE: int = 16
-    HIGHFREQ_FACTOR: int = 4
+    MIDFREQ_FACTOR: int = 4
     WINDOW_SIZE: int = 128
     KEY: int = 5178
 
@@ -106,7 +108,7 @@ def sender():
 
                 h: rh.ImageHash = rh.phash(Image.fromarray(block),
                                            hash_size=MyConstants.HASH_SIZE,
-                                           highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                                           midfreq_factor=MyConstants.MIDFREQ_FACTOR)
 
                 left = j
                 upper = i
@@ -204,7 +206,7 @@ def receiver():
         with Image.open(os.path.join(images_dir, filename)) as image:
             h: rh.ImageHash = rh.phash(image,
                                        hash_size=MyConstants.HASH_SIZE,
-                                       highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                                       midfreq_factor=MyConstants.MIDFREQ_FACTOR)
             hashes.append(h.value)
 
     # Декодируем сообщение
@@ -276,12 +278,12 @@ class TestRobustHash(unittest.TestCase):
         with Image.open(filename) as image:
             h = rh.phash(image,
                          hash_size=MyConstants.HASH_SIZE,
-                         highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                         midfreq_factor=MyConstants.MIDFREQ_FACTOR)
         for r in range(1, 30, 5):
             with Image.open(filename) as image:
                 rot_h = rh.phash(image.rotate(r),
                                  hash_size=MyConstants.HASH_SIZE,
-                                 highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                                 midfreq_factor=MyConstants.MIDFREQ_FACTOR)
             result = h - rot_h
             print('Расстояние Хемминга при повороте на {} градус: {}'.format(r, result))
             self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 2)
@@ -299,7 +301,7 @@ class TestRobustHash(unittest.TestCase):
         for r in range(1, 30, 5):
             gauss_h = rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
                                hash_size=MyConstants.HASH_SIZE,
-                               highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                               midfreq_factor=MyConstants.MIDFREQ_FACTOR)
             result = h - gauss_h
             print('Расстояние Хемминга при Гауссовском шуме радиуса {} : {}'.format(r, result))
             self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 64)
@@ -310,7 +312,7 @@ class TestRobustHash(unittest.TestCase):
                 enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
             brightened_h = rh.phash(enhancer,
                                     hash_size=MyConstants.HASH_SIZE,
-                                    highfreq_factor=MyConstants.HIGHFREQ_FACTOR)
+                                    midfreq_factor=MyConstants.MIDFREQ_FACTOR)
             result = h - brightened_h
             print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
             self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 64)
@@ -377,3 +379,5 @@ if __name__ == '__main__':
     # spoil_images('repository/resources/sent_images')
     # unittest.main()
     app.run(host='0.0.0.0', port=port, debug=True)
+    # with Image.open('test.png') as image:
+    #     image_reconstruction.ImageReconstruction.reconstruction_with_pca(image, 1)

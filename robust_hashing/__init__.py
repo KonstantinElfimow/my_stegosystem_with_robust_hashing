@@ -99,7 +99,7 @@ def average_hash(image: Image.Image, hash_size: int) -> ImageHash:
     return ImageHash(diff)
 
 
-def phash(image: Image.Image, hash_size: int, highfreq_factor: int) -> ImageHash:
+def phash(image: Image.Image, hash_size: int, midfreq_factor: int) -> ImageHash:
     """
     Вычисление Perceptual hash
 
@@ -108,7 +108,7 @@ def phash(image: Image.Image, hash_size: int, highfreq_factor: int) -> ImageHash
     if hash_size < 4:
         raise ValueError('Размер хеша должен быть больше или равен 4')
 
-    img_size = int(np.sqrt(hash_size)) * highfreq_factor
+    img_size = int(np.sqrt(hash_size)) * midfreq_factor
     image = image.convert('L').resize((img_size, img_size), ANTIALIAS)
     pixels = np.asarray(image, dtype=np.uint8)
     dct = scipy.fftpack.dct(scipy.fftpack.dct(pixels, axis=0), axis=1)
