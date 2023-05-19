@@ -13,7 +13,6 @@ from flask import Flask, jsonify, request
 import robust_hashing as rh
 from image_reconstruction import ImageReconstruction
 
-
 app = Flask(__name__)
 
 port = 5000
@@ -63,7 +62,7 @@ def post_images():
 
 
 class MyConstants:
-    HASH_SIZE: int = 16
+    HASH_SIZE: int = 64
     HIGHFREQ_FACTOR: int = 4
     WINDOW_SIZE: int = 128
     KEY: int = 5178
@@ -230,7 +229,48 @@ def receiver():
     return 'Восстановление сообщения завершено успешно!', 200
 
 
-class TestPhash(unittest.TestCase):
+class TestRobustHash(unittest.TestCase):
+    def test_average_hash(self):
+        print('Тестирование Average Hash!')
+
+        filename = 'test.png'
+
+        with Image.open(filename) as image:
+            h = rh.average_hash(image, hash_size=MyConstants.HASH_SIZE)
+        for r in range(1, 30, 5):
+            with Image.open(filename) as image:
+                rot_h = rh.average_hash(image.rotate(r),
+                                        hash_size=MyConstants.HASH_SIZE)
+            result = h - rot_h
+            print('Расстояние Хемминга при повороте на {} градус: {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 2)
+
+        # Преобразование изображения в массив NumPy
+        with Image.open(filename) as image:
+            image_array = np.array(image)
+
+        # Создание гауссовского шума
+        noise = np.random.normal(0, 10, image_array.shape)
+        noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
+
+        # Преобразование массива NumPy обратно в изображение
+        noisy_image = Image.fromarray(noisy_image_array)
+        for r in range(1, 30, 5):
+            gauss_h = rh.average_hash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                                      hash_size=MyConstants.HASH_SIZE)
+            result = h - gauss_h
+            print('Расстояние Хемминга при Гауссовском шуме радиуса {} : {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 64)
+
+        # Изменение яркости изображения (затемнение)
+        for x in range(1, 10):
+            with Image.open(filename) as image:
+                enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
+            brightened_h = rh.average_hash(enhancer, hash_size=MyConstants.HASH_SIZE)
+            result = h - brightened_h
+            print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
+            self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 20)
+
     def test_phash(self):
         print('Тестирование pHash!')
 
@@ -277,6 +317,46 @@ class TestPhash(unittest.TestCase):
             result = h - brightened_h
             print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
             self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 64)
+
+    def test_dhash(self):
+        print('Тестирование dHash!')
+
+        filename = 'test.png'
+
+        with Image.open(filename) as image:
+            h = rh.dhash(image, hash_size=MyConstants.HASH_SIZE)
+        for r in range(1, 30, 5):
+            with Image.open(filename) as image:
+                rot_h = rh.dhash(image.rotate(r), hash_size=MyConstants.HASH_SIZE)
+            result = h - rot_h
+            print('Расстояние Хемминга при повороте на {} градус: {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=3 * MyConstants.HASH_SIZE // 4)
+
+        # Преобразование изображения в массив NumPy
+        with Image.open(filename) as image:
+            image_array = np.array(image)
+
+        # Создание гауссовского шума
+        noise = np.random.normal(0, 10, image_array.shape)
+        noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
+
+        # Преобразование массива NumPy обратно в изображение
+        noisy_image = Image.fromarray(noisy_image_array)
+        for r in range(1, 30, 5):
+            gauss_h = rh.dhash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                               hash_size=MyConstants.HASH_SIZE)
+            result = h - gauss_h
+            print('Расстояние Хемминга при Гауссовском шуме радиуса {} : {}'.format(r, result))
+            self.assertAlmostEqual(result, 0, delta=MyConstants.HASH_SIZE // 16)
+
+        # Изменение яркости изображения (затемнение)
+        for x in range(1, 10):
+            with Image.open(filename) as image:
+                enhancer = ImageEnhance.Brightness(image).enhance(x / 10)
+            brightened_h = rh.dhash(enhancer, hash_size=MyConstants.HASH_SIZE)
+            result = h - brightened_h
+            print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
+            self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 16)
 
 
 # def spoil_images(images_dir: str):
