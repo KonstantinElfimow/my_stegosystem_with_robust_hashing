@@ -8,7 +8,6 @@ from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import requests
 import sqlite3
-from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 import robust_hashing as rh
 from image_reconstruction import ImageReconstruction
@@ -27,8 +26,6 @@ conn.execute('CREATE TABLE IF NOT EXISTS images '
              'binary TEXT NOT NULL)')
 conn.commit()
 conn.close()
-
-load_dotenv('.env')
 
 
 @app.route('/api/data/images', methods=['GET'])
@@ -62,7 +59,7 @@ def post_images():
 
 
 class MyConstants:
-    HASH_SIZE: int = 64
+    HASH_SIZE: int = 16
     HIGHFREQ_FACTOR: int = 4
     WINDOW_SIZE: int = 128
     KEY: int = 5178
