@@ -66,6 +66,7 @@ class MyConstants:
     HASH_SIZE: int = 16
     HIGHFREQ_FACTOR: int = 4
     WINDOW_SIZE: int = 128
+    KEY: int = 5178
 
 
 def format_time(seconds: float) -> str:
@@ -133,8 +134,7 @@ def sender():
         with open(message_path, mode='r', encoding='utf-8') as file:
             message = file.read()
 
-        key = int(os.getenv('KEY'))
-        np.random.seed(key)
+        np.random.seed(MyConstants.KEY)
 
         chosen_frames = []
 
@@ -181,7 +181,7 @@ def sender():
     # Через REST API отправляем изображения в виде бинарника
     requests.post(f'{request.host_url}/api/data/images', json=filename_binary, headers=headers)
 
-    return 'OK', 200
+    return 'Скрытие завершено успешно!', 200
 
 
 @app.route('/get_images')
@@ -214,8 +214,7 @@ def receiver():
     # Декодируем сообщение
     buffer = io.StringIO()
 
-    key = int(os.getenv('KEY'))
-    np.random.seed(key)
+    np.random.seed(MyConstants.KEY)
     for h in hashes:
         gamma = gamma_function(2 ** MyConstants.HASH_SIZE)
         m = np.uint8(np.bitwise_xor(h, gamma))
@@ -228,7 +227,7 @@ def receiver():
         file.write(buffer.getvalue())
     del buffer
 
-    return 'OK', 200
+    return 'Восстановление сообщения завершено успешно!', 200
 
 
 class TestPhash(unittest.TestCase):
