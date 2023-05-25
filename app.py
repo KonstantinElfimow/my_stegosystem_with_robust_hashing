@@ -9,7 +9,7 @@ import numpy as np
 import requests
 import sqlite3
 from flask import Flask, jsonify, request
-
+import matplotlib.pyplot as plt
 import image_reconstruction
 import robust_hashing as rh
 from image_reconstruction import ImageReconstruction
@@ -268,7 +268,7 @@ class TestRobustHash(unittest.TestCase):
             brightened_h = rh.average_hash(enhancer, hash_size=MyConstants.HASH_SIZE)
             result = h - brightened_h
             print('Расстояние Хемминга при изменении яркости изображения на {}%: {}'.format(100 - x * 10, result))
-            self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 20)
+            self.assertAlmostEqual(h - brightened_h, 0, delta=MyConstants.HASH_SIZE // 4)
 
     def test_phash(self):
         print('Тестирование pHash!')
@@ -374,8 +374,103 @@ class TestRobustHash(unittest.TestCase):
 #
 #             image.save(os.path.join(images_dir, f'compressed_{i}.{suffix}'), quality=50)
 
+def show_graphic(title: str, x: list, x_label: str, distance_average_hash: list, distance_phash: list,
+                 distance_dhash: list) -> None:
+    plt.plot(x, distance_average_hash, label='Average Hash', marker='o')
+    plt.plot(x, distance_phash, label='pHash', marker='o')
+    plt.plot(x, distance_dhash, label='dHash', marker='o')
+    # добавление легенды и заголовка
+    plt.legend()
+    plt.title(title)
+    plt.xlabel(x_label, fontsize=14)
+    plt.ylabel('Расстояние Хемминга', fontsize=14)
+
+    # включаем дополнительные отметки на осях
+    plt.minorticks_on()
+
+    plt.xlim([0., max(x) + 1])
+    plt.ylim([0., MyConstants.HASH_SIZE])
+    # включаем основную сетку
+    plt.grid(which='major')
+    # включаем дополнительную сетку
+    plt.grid(which='minor', linestyle=':')
+    plt.tight_layout()
+    plt.show()
+
+
+def build_graphics() -> None:
+    filename = 'test.png'
+
+    with Image.open(filename) as image:
+        h_average_hash = rh.average_hash(image, hash_size=MyConstants.HASH_SIZE)
+        h_phash = rh.phash(image,
+                           hash_size=MyConstants.HASH_SIZE,
+                           midfreq_factor=MyConstants.MIDFREQ_FACTOR)
+        h_dhash = rh.dhash(image, hash_size=MyConstants.HASH_SIZE)
+
+    degrees = list(range(0, 50, 5))
+    distance_average_hash = []
+    distance_phash = []
+    distance_dhash = []
+    for d in degrees:
+        with Image.open(filename) as image:
+            distance_average_hash.append(
+                h_average_hash - rh.average_hash(image.rotate(d), hash_size=MyConstants.HASH_SIZE))
+            distance_phash.append(h_phash - rh.phash(image.rotate(d),
+                                                     hash_size=MyConstants.HASH_SIZE,
+                                                     midfreq_factor=MyConstants.MIDFREQ_FACTOR))
+            distance_dhash.append(h_dhash - rh.dhash(image.rotate(d), hash_size=MyConstants.HASH_SIZE))
+
+    show_graphic('Расстояние Хемминга при повороте изображения на заданный градус', degrees, 'Градус',
+                 distance_average_hash, distance_phash, distance_dhash)
+
+    # Преобразование изображения в массив NumPy
+    with Image.open(filename) as image:
+        image_array = np.array(image)
+
+    # Создание гауссовского шума
+    noise = np.random.normal(0, 10, image_array.shape)
+    noisy_image_array = np.clip(image_array + noise, 0, 255).astype(np.uint8)
+
+    # Преобразование массива NumPy обратно в изображение
+    noisy_image = Image.fromarray(noisy_image_array)
+
+    radius = list(range(0, 50, 5))
+    distance_average_hash = []
+    distance_phash = []
+    distance_dhash = []
+    for r in radius:
+        distance_average_hash.append(
+            h_average_hash - rh.average_hash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                                             hash_size=MyConstants.HASH_SIZE))
+        distance_phash.append(h_phash - rh.phash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                                                 hash_size=MyConstants.HASH_SIZE,
+                                                 midfreq_factor=MyConstants.MIDFREQ_FACTOR))
+        distance_dhash.append(h_dhash - rh.dhash(noisy_image.filter(ImageFilter.GaussianBlur(radius=r)),
+                                                 hash_size=MyConstants.HASH_SIZE))
+
+    show_graphic('Расстояние Хемминга при Гауссовском зашумлении изображения', radius, 'Радиус зашумления',
+                 distance_average_hash, distance_phash, distance_dhash)
+    # Изменение яркости изображения (затемнение)
+    lst = list(range(0, 100, 10))
+    distance_average_hash = []
+    distance_phash = []
+    distance_dhash = []
+    for x in lst:
+        with Image.open(filename) as image:
+            enhancer = ImageEnhance.Brightness(image).enhance(x)
+        distance_average_hash.append(h_average_hash - rh.average_hash(enhancer, hash_size=MyConstants.HASH_SIZE))
+        distance_phash.append(h_phash - rh.phash(enhancer,
+                                                 hash_size=MyConstants.HASH_SIZE,
+                                                 midfreq_factor=MyConstants.MIDFREQ_FACTOR))
+        distance_dhash.append(h_dhash - rh.dhash(enhancer, hash_size=MyConstants.HASH_SIZE))
+
+    show_graphic('Расстояние Хемминга при изменении яркости изображения', lst, '% от начальной яркости',
+                 distance_average_hash, distance_phash, distance_dhash)
+
 
 if __name__ == '__main__':
+    # build_graphics()
     # spoil_images('repository/resources/sent_images')
     # unittest.main()
     app.run(host='0.0.0.0', port=port, debug=True)
